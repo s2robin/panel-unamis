@@ -1821,18 +1821,11 @@ function App() {
                   <form className="communication-compose" onSubmit={submitInternalMessage}>
                     <div className="communication-field-grid">
                       <label className="communication-field">
-                        <span>Rol destino</span>
-                        <select
-                          value={communicationRoleFilter}
-                          onChange={(event) => setCommunicationRoleFilter(event.target.value)}
-                        >
-                          <option value="all">Todos los roles</option>
-                          {communicationRoleOptions.map((entry) => (
-                            <option key={entry.role} value={entry.role}>
-                              {entry.roleLabel}
-                            </option>
-                          ))}
-                        </select>
+                        <span>Remitente</span>
+                        <div className="communication-readonly-field">
+                          <strong>{user.displayName || user.username}</strong>
+                          <small>{user.roleLabel || user.role}</small>
+                        </div>
                       </label>
 
                       <label className="communication-field">
@@ -1852,6 +1845,21 @@ function App() {
                     </div>
 
                     <div className="communication-field-grid compact">
+                      <label className="communication-field">
+                        <span>Filtrar destinatarios por rol</span>
+                        <select
+                          value={communicationRoleFilter}
+                          onChange={(event) => setCommunicationRoleFilter(event.target.value)}
+                        >
+                          <option value="all">Todos los roles</option>
+                          {communicationRoleOptions.map((entry) => (
+                            <option key={entry.role} value={entry.role}>
+                              {entry.roleLabel}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+
                       <label className="communication-field">
                         <span>Asunto</span>
                         <input

@@ -1932,6 +1932,27 @@ button.custom-file-btn {
   gap: 7px;
 }
 
+.communication-readonly-field {
+  display: grid;
+  gap: 3px;
+  min-height: 50px;
+  align-content: center;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 14px;
+  padding: 12px 14px;
+  background: linear-gradient(180deg, rgba(248, 250, 252, 0.96), rgba(241, 245, 249, 0.92));
+}
+
+.communication-readonly-field strong {
+  color: var(--text);
+  font-size: 0.96rem;
+}
+
+.communication-readonly-field small {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
 .communication-field span,
 .communication-upload span {
   font-size: 0.84rem;
