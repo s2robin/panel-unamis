@@ -133,9 +133,9 @@ const hydrateMailBodyContent = (htmlContent = "", inlineAttachments = []) => {
 };
 
 // Base URL para la API - Cambia 'tudominio.com' por tu dominio real en Hostinger
-const API_BASE_URL = window.location.hostname === "localhost" 
-  ? "http://localhost:3001" 
-  : "https://tudominio.com/api"; 
+const API_BASE_URL = window.location.hostname === "localhost"
+  ? "http://localhost:3001"
+  : "https://panel-unamis-production.up.railway.app"; 
 
 const MAILBOX_CONFIG = {
   personal: {
