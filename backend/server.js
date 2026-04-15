@@ -350,13 +350,20 @@ const MS_CLIENT_ID = process.env.MS_CLIENT_ID;
 const MS_CLIENT_SECRET = process.env.MS_CLIENT_SECRET;
 const MS_USER_EMAIL = process.env.MS_USER_EMAIL;
 const MS_PERSONAL_USER_EMAIL = process.env.MS_PERSONAL_USER_EMAIL;
+const MS_DIRECTOR_INFORMATICA_USER_EMAIL = process.env.MS_DIRECTOR_INFORMATICA_USER_EMAIL;
 
 const MAILBOXES = {
   institutional: MS_USER_EMAIL,
   personal: MS_PERSONAL_USER_EMAIL,
+  director_informatica: MS_DIRECTOR_INFORMATICA_USER_EMAIL,
 };
 
-function resolveMailbox(account = "institutional") {
+function resolveMailbox(account = "institutional", requestedMailbox = "") {
+  const normalizedRequestedMailbox = String(requestedMailbox || "").trim().toLowerCase();
+  if (normalizedRequestedMailbox) {
+    return normalizedRequestedMailbox;
+  }
+
   const normalizedAccount = String(account || "institutional").toLowerCase();
   const mailboxEmail = MAILBOXES[normalizedAccount];
 
@@ -460,7 +467,7 @@ async function getMailFolderMessages(userEmail, folderName, top = 25) {
 
 app.get("/api/mail/inbox", async (req, res) => {
   try {
-    const userEmail = resolveMailbox(req.query.account);
+    const userEmail = resolveMailbox(req.query.account, req.query.mailbox);
     const data = await getMailFolderMessages(userEmail, "Inbox", 30);
     res.json(data);
   } catch (error) {
@@ -474,7 +481,7 @@ app.get("/api/mail/inbox", async (req, res) => {
 
 app.get("/api/mail/sent", async (req, res) => {
   try {
-    const userEmail = resolveMailbox(req.query.account);
+    const userEmail = resolveMailbox(req.query.account, req.query.mailbox);
     const data = await getMailFolderMessages(userEmail, "SentItems", 30);
     res.json(data);
   } catch (error) {
@@ -488,7 +495,7 @@ app.get("/api/mail/sent", async (req, res) => {
 
 app.get("/api/mail/spam", async (req, res) => {
   try {
-    const userEmail = resolveMailbox(req.query.account);
+    const userEmail = resolveMailbox(req.query.account, req.query.mailbox);
     const data = await getMailFolderMessages(userEmail, "JunkEmail", 30);
     res.json(data);
   } catch (error) {
@@ -503,7 +510,7 @@ app.get("/api/mail/spam", async (req, res) => {
 app.get("/api/mail/message/:id", async (req, res) => {
   try {
     const token = await getGraphToken();
-    const userEmail = resolveMailbox(req.query.account);
+    const userEmail = resolveMailbox(req.query.account, req.query.mailbox);
 
     const messageUrl =
       `https://graph.microsoft.com/v1.0/users/${userEmail}/messages/${req.params.id}` +
