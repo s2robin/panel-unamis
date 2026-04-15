@@ -503,6 +503,9 @@ function App() {
     return [];
   };
 
+  const getMailboxTarget = (accountKey = mailAccount) =>
+    user?.mailboxAccess?.[accountKey]?.target || "";
+
   const updateMailboxState = (accountKey, updater) => {
     setMailboxesData((prev) => {
       const currentMailbox = prev[accountKey] || createEmptyMailboxState();
@@ -523,7 +526,10 @@ function App() {
         error: "",
       });
 
-      const accountParam = `account=${encodeURIComponent(accountKey)}`;
+      const mailboxTarget = getMailboxTarget(accountKey);
+      const accountParam =
+        `account=${encodeURIComponent(accountKey)}` +
+        `&mailbox=${encodeURIComponent(mailboxTarget)}`;
 
       const [inboxRes, sentRes, spamRes] = await Promise.all([
         fetch(`${API_BASE_URL}/api/mail/inbox?${accountParam}`),
@@ -603,7 +609,10 @@ function App() {
     setView("mail-detail");
 
     try {
-      const accountParam = `account=${encodeURIComponent(mailAccount)}`;
+      const mailboxTarget = getMailboxTarget(mailAccount);
+      const accountParam =
+        `account=${encodeURIComponent(mailAccount)}` +
+        `&mailbox=${encodeURIComponent(mailboxTarget)}`;
       const res = await fetch(`${API_BASE_URL}/api/mail/message/${mail.id}?${accountParam}`);
       if (!res.ok) {
         throw new Error("No se pudo cargar el detalle del correo");
