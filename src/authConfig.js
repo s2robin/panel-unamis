@@ -1,6 +1,7 @@
 export const INITIAL_PASSWORD = "Unamis2026*";
 
 export const MODULE_KEYS = {
+  communication: "communication",
   mailInstitutional: "mail_institutional",
   mailPersonal: "mail_personal",
   onedrive: "onedrive",
@@ -53,17 +54,18 @@ export const ROLE_CONFIG = {
   },
   coordinador_ead: {
     label: "Técnico Docente Coordinador/a de EaD",
-    modules: [MODULE_KEYS.moodle],
+    modules: [MODULE_KEYS.communication, MODULE_KEYS.moodle],
     mailboxes: {},
   },
   administrativo_ead: {
     label: "Técnico Docente Personal administrativo para EaD",
-    modules: [MODULE_KEYS.finance],
+    modules: [MODULE_KEYS.communication, MODULE_KEYS.finance],
     mailboxes: {},
   },
   coordinacion_academica: {
     label: "Coordinación de Gestión Académica",
     modules: [
+      MODULE_KEYS.communication,
       MODULE_KEYS.mailInstitutional,
       MODULE_KEYS.onedrive,
       MODULE_KEYS.docs,
@@ -242,3 +244,16 @@ export const getDefaultMailboxForUser = (user) => {
   if (canAccessMailbox(user, "personal")) return "personal";
   return null;
 };
+
+export const USER_DIRECTORY = USER_RECORDS.map((userRecord) => {
+  const resolvedUser = resolveUserSession(userRecord);
+
+  return {
+    id: userRecord.id,
+    username: userRecord.username,
+    displayName: userRecord.displayName,
+    role: userRecord.role,
+    roleLabel: resolvedUser?.roleLabel || userRecord.role,
+    moduleAccess: resolvedUser?.moduleAccess || {},
+  };
+});

@@ -7,7 +7,7 @@ require("dotenv").config();
 
 const app = express();
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: "20mb" }));
 
 const PORT = process.env.PORT || 3001;
 
@@ -17,14 +17,28 @@ const PORT = process.env.PORT || 3001;
 
 const DATA_DIR = path.join(__dirname, "data");
 const READ_STATUS_FILE = path.join(DATA_DIR, "docs-read-status.json");
+const INTERNAL_COMM_FILE = path.join(DATA_DIR, "internal-communications.json");
+const UPLOADS_DIR = path.join(DATA_DIR, "uploads");
 
 function ensureStorage() {
   if (!fs.existsSync(DATA_DIR)) {
     fs.mkdirSync(DATA_DIR, { recursive: true });
   }
 
+  if (!fs.existsSync(UPLOADS_DIR)) {
+    fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+  }
+
   if (!fs.existsSync(READ_STATUS_FILE)) {
     fs.writeFileSync(READ_STATUS_FILE, JSON.stringify({}, null, 2), "utf8");
+  }
+
+  if (!fs.existsSync(INTERNAL_COMM_FILE)) {
+    fs.writeFileSync(
+      INTERNAL_COMM_FILE,
+      JSON.stringify({ conversations: [], messages: [] }, null, 2),
+      "utf8"
+    );
   }
 }
 
@@ -57,6 +71,58 @@ async function updateMemoStatus(id, patch) {
   await writeStatusStore(store);
   return updated;
 }
+
+async function readInternalCommunicationStore() {
+  ensureStorage();
+  const raw = await fs.promises.readFile(INTERNAL_COMM_FILE, "utf8");
+  return raw ? JSON.parse(raw) : { conversations: [], messages: [] };
+}
+
+async function writeInternalCommunicationStore(data) {
+  ensureStorage();
+  await fs.promises.writeFile(INTERNAL_COMM_FILE, JSON.stringify(data, null, 2), "utf8");
+}
+
+function buildConversationKey(participants = []) {
+  return [...participants].sort().join("__");
+}
+
+function sanitizeFileName(fileName = "archivo") {
+  return String(fileName)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9._-]/g, "_");
+}
+
+async function persistInternalAttachments(attachments = []) {
+  ensureStorage();
+
+  const persistedAttachments = [];
+
+  for (const attachment of attachments) {
+    if (!attachment?.contentBase64 || !attachment?.name) continue;
+
+    const fileId = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    const safeFileName = sanitizeFileName(attachment.name);
+    const fileName = `${fileId}-${safeFileName}`;
+    const filePath = path.join(UPLOADS_DIR, fileName);
+
+    await fs.promises.writeFile(filePath, Buffer.from(attachment.contentBase64, "base64"));
+
+    persistedAttachments.push({
+      id: fileId,
+      name: attachment.name,
+      mimeType: attachment.mimeType || "application/octet-stream",
+      size: Number(attachment.size || 0),
+      url: `/uploads/${fileName}`,
+      uploadedAt: new Date().toISOString(),
+    });
+  }
+
+  return persistedAttachments;
+}
+
+app.use("/uploads", express.static(UPLOADS_DIR));
 
 /* =========================
    🔵 MOODLE CONFIG
@@ -410,6 +476,161 @@ app.get("/api/onedrive/files", async (req, res) => {
     res.status(500).json({
       error: "Falló la conexión con OneDrive",
       detail: error.response?.data || error.message
+    });
+  }
+});
+
+/* =========================
+   INTERNAL COMMUNICATION
+========================= */
+
+app.get("/api/internal/conversations", async (req, res) => {
+  try {
+    const userId = String(req.query.userId || "").trim();
+    if (!userId) {
+      return res.status(400).json({ error: "Falta userId" });
+    }
+
+    const store = await readInternalCommunicationStore();
+    const conversations = (store.conversations || [])
+      .filter((conversation) => Array.isArray(conversation.participants) && conversation.participants.includes(userId))
+      .map((conversation) => {
+        const conversationMessages = (store.messages || [])
+          .filter((message) => message.conversationId === conversation.id)
+          .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+
+        const lastMessage = conversationMessages[conversationMessages.length - 1] || null;
+
+        return {
+          ...conversation,
+          lastMessage,
+          messageCount: conversationMessages.length,
+        };
+      })
+      .sort((a, b) => new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt));
+
+    res.json(conversations);
+  } catch (error) {
+    res.status(500).json({
+      error: "Fallo conversaciones internas",
+      detail: error.message,
+    });
+  }
+});
+
+app.get("/api/internal/conversations/:id/messages", async (req, res) => {
+  try {
+    const userId = String(req.query.userId || "").trim();
+    if (!userId) {
+      return res.status(400).json({ error: "Falta userId" });
+    }
+
+    const store = await readInternalCommunicationStore();
+    const conversation = (store.conversations || []).find((item) => item.id === req.params.id);
+
+    if (!conversation) {
+      return res.status(404).json({ error: "Conversacion no encontrada" });
+    }
+
+    if (!conversation.participants.includes(userId)) {
+      return res.status(403).json({ error: "Sin acceso a esta conversacion" });
+    }
+
+    const messages = (store.messages || [])
+      .filter((message) => message.conversationId === req.params.id)
+      .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+
+    res.json({
+      conversation,
+      messages,
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: "Fallo mensajes internos",
+      detail: error.message,
+    });
+  }
+});
+
+app.post("/api/internal/messages", async (req, res) => {
+  try {
+    const {
+      senderId,
+      recipientId,
+      conversationId,
+      subject,
+      priority,
+      text,
+      attachments,
+    } = req.body || {};
+
+    const normalizedSenderId = String(senderId || "").trim();
+    const normalizedRecipientId = String(recipientId || "").trim();
+    const normalizedText = String(text || "").trim();
+
+    if (!normalizedSenderId || !normalizedRecipientId) {
+      return res.status(400).json({ error: "Faltan senderId o recipientId" });
+    }
+
+    if (!normalizedText && (!Array.isArray(attachments) || attachments.length === 0)) {
+      return res.status(400).json({ error: "Debes enviar un mensaje o un archivo" });
+    }
+
+    const store = await readInternalCommunicationStore();
+    let conversation = null;
+
+    if (conversationId) {
+      conversation = (store.conversations || []).find((item) => item.id === conversationId);
+    }
+
+    if (!conversation) {
+      const conversationKey = buildConversationKey([normalizedSenderId, normalizedRecipientId]);
+      conversation = (store.conversations || []).find((item) => item.key === conversationKey);
+
+      if (!conversation) {
+        conversation = {
+          id: `conv_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+          key: conversationKey,
+          type: "private",
+          participants: [normalizedSenderId, normalizedRecipientId],
+          subject: String(subject || "Comunicacion interna").trim(),
+          priority: String(priority || "normal").trim(),
+          createdBy: normalizedSenderId,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+
+        store.conversations.push(conversation);
+      }
+    }
+
+    const persistedAttachments = await persistInternalAttachments(Array.isArray(attachments) ? attachments : []);
+    const message = {
+      id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      conversationId: conversation.id,
+      senderId: normalizedSenderId,
+      recipientId: normalizedRecipientId,
+      text: normalizedText,
+      attachments: persistedAttachments,
+      createdAt: new Date().toISOString(),
+      readBy: [normalizedSenderId],
+    };
+
+    conversation.updatedAt = message.createdAt;
+    conversation.subject = conversation.subject || String(subject || "Comunicacion interna").trim();
+    conversation.priority = String(priority || conversation.priority || "normal").trim();
+
+    store.messages.push(message);
+    await writeInternalCommunicationStore(store);
+
+    res.status(201).json({
+      conversation,
+      message,
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: "Fallo envio interno",
+      detail: error.message,
     });
   }
 });

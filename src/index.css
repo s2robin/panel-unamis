@@ -1856,6 +1856,262 @@ button.custom-file-btn {
 }
 
 /* =========================
+   INTERNAL COMMUNICATION
+========================= */
+
+.communication-layout {
+  display: grid;
+  grid-template-columns: minmax(320px, 420px) minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+
+.communication-sidebar {
+  display: grid;
+  gap: 18px;
+}
+
+.communication-panel {
+  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  padding: 22px;
+  box-shadow: var(--shadow-soft);
+  backdrop-filter: blur(10px);
+}
+
+.communication-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.communication-panel-head h3 {
+  font-size: 1.1rem;
+  color: var(--text);
+}
+
+.communication-kicker {
+  font-size: 0.76rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--primary-dark);
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.communication-private-pill,
+.communication-priority {
+  padding: 8px 12px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--primary-dark);
+  background: var(--primary-soft);
+}
+
+.communication-compose {
+  display: grid;
+  gap: 14px;
+}
+
+.communication-field-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.communication-field-grid.compact {
+  grid-template-columns: minmax(0, 1.6fr) minmax(140px, 0.7fr);
+}
+
+.communication-field {
+  display: grid;
+  gap: 7px;
+}
+
+.communication-field span,
+.communication-upload span {
+  font-size: 0.84rem;
+  font-weight: 700;
+  color: var(--muted-2);
+}
+
+.communication-field input,
+.communication-field select,
+.communication-field textarea,
+.communication-upload input {
+  width: 100%;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 14px;
+  padding: 12px 14px;
+  background: rgba(248, 250, 252, 0.92);
+  color: var(--text);
+}
+
+.communication-field textarea {
+  min-height: 108px;
+  resize: vertical;
+}
+
+.communication-upload {
+  display: grid;
+  gap: 8px;
+}
+
+.communication-upload small {
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.communication-file-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.communication-file-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px;
+  border-radius: 999px;
+  background: rgba(37, 99, 235, 0.08);
+  color: var(--primary-dark);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.communication-compose-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.communication-conversation-list {
+  display: grid;
+  gap: 12px;
+}
+
+.communication-conversation-card {
+  width: 100%;
+  text-align: left;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: rgba(248, 250, 252, 0.88);
+  border-radius: 18px;
+  padding: 14px 15px;
+  transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.communication-conversation-card:hover,
+.communication-conversation-card.active {
+  transform: translateY(-2px);
+  border-color: rgba(37, 99, 235, 0.34);
+  box-shadow: 0 16px 30px rgba(15, 23, 42, 0.08);
+}
+
+.communication-conversation-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: baseline;
+  margin-bottom: 6px;
+}
+
+.communication-conversation-top strong {
+  color: var(--text);
+}
+
+.communication-conversation-top span,
+.communication-conversation-card small {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.communication-conversation-card p {
+  color: var(--muted-2);
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.communication-thread-panel {
+  min-width: 0;
+}
+
+.communication-thread-shell {
+  min-height: 720px;
+}
+
+.communication-thread-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 18px;
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.communication-thread {
+  display: grid;
+  gap: 14px;
+}
+
+.communication-message {
+  max-width: 82%;
+  border-radius: 20px;
+  padding: 16px 18px;
+  box-shadow: var(--shadow-soft);
+}
+
+.communication-message.own {
+  margin-left: auto;
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.12), rgba(191, 219, 254, 0.54));
+  border: 1px solid rgba(37, 99, 235, 0.18);
+}
+
+.communication-message.incoming {
+  background: rgba(248, 250, 252, 0.92);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+.communication-message-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.communication-message p {
+  color: var(--text);
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.communication-attachment-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.communication-attachment {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--primary-dark);
+  border: 1px solid rgba(37, 99, 235, 0.16);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+/* =========================
    FOOTER
 ========================= */
 
@@ -1877,6 +2133,10 @@ button.custom-file-btn {
 
   .home-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+   .communication-layout {
+    grid-template-columns: 1fr;
   }
 
   .memo-info-grid {
@@ -1955,6 +2215,15 @@ button.custom-file-btn {
     grid-template-columns: 1fr;
   }
 
+  .communication-field-grid,
+  .communication-field-grid.compact {
+    grid-template-columns: 1fr;
+  }
+
+  .communication-thread-shell {
+    min-height: auto;
+  }
+
   .memo-panel.large,
   .memo-panel.side {
     grid-column: span 1;
@@ -2004,7 +2273,8 @@ button.custom-file-btn {
   .detail-panel,
   .doc-card,
   .memo-panel,
-  .docs-toolbar {
+  .docs-toolbar,
+  .communication-panel {
     padding: 16px;
   }
 
@@ -2046,7 +2316,8 @@ button.custom-file-btn {
 
   .docs-tabs,
   .docs-filters,
-  .memo-top-actions {
+  .memo-top-actions,
+  .communication-compose-actions {
     width: 100%;
   }
 

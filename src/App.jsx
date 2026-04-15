@@ -5,6 +5,7 @@ import FinanceModule from "./FinanceModule";
 import {
   MAILBOX_CONFIG as AUTH_MAILBOX_CONFIG,
   MODULE_KEYS,
+  USER_DIRECTORY,
   authenticateUser,
   canAccessMailbox,
   canAccessModule,
@@ -71,6 +72,24 @@ const buildPreviewFile = ({ name, url, sourceUrl, previewUrlOverride }) => {
     previewType: "iframe",
   };
 };
+
+const fileToBase64 = (file) =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = typeof reader.result === "string" ? reader.result : "";
+      const [, contentBase64 = ""] = result.split(",");
+
+      resolve({
+        name: file.name,
+        mimeType: file.type || "application/octet-stream",
+        size: file.size || 0,
+        contentBase64,
+      });
+    };
+    reader.onerror = () => reject(new Error(`No se pudo leer el archivo ${file.name}`));
+    reader.readAsDataURL(file);
+  });
 
 const revokePreviewObjectUrl = (previewObjectUrlRef) => {
   if (previewObjectUrlRef.current) {
@@ -184,6 +203,7 @@ const createInitialMailboxesData = () =>
 const MODULE_VIEW_ACCESS = {
   mail: (currentUser, currentMailbox) => canAccessMailbox(currentUser, currentMailbox),
   "mail-detail": (currentUser, currentMailbox) => canAccessMailbox(currentUser, currentMailbox),
+  communication: (currentUser) => canAccessModule(currentUser, MODULE_KEYS.communication),
   onedrive: (currentUser) => canAccessModule(currentUser, MODULE_KEYS.onedrive),
   docs: (currentUser) => canAccessModule(currentUser, MODULE_KEYS.docs),
   "docs-detail": (currentUser) => canAccessModule(currentUser, MODULE_KEYS.docs),
@@ -321,6 +341,21 @@ function App() {
   const [mailTab, setMailTab] = useState("INBOX");
   const [mailAccount, setMailAccount] = useState("institutional");
   const [mailboxesData, setMailboxesData] = useState(createInitialMailboxesData);
+  const [communicationLoaded, setCommunicationLoaded] = useState(false);
+  const [communicationLoading, setCommunicationLoading] = useState(false);
+  const [communicationError, setCommunicationError] = useState("");
+  const [conversations, setConversations] = useState([]);
+  const [selectedConversationId, setSelectedConversationId] = useState(null);
+  const [conversationMessages, setConversationMessages] = useState([]);
+  const [conversationMessagesLoading, setConversationMessagesLoading] = useState(false);
+  const [conversationMessagesError, setConversationMessagesError] = useState("");
+  const [communicationRoleFilter, setCommunicationRoleFilter] = useState("all");
+  const [recipientUserId, setRecipientUserId] = useState("");
+  const [messageSubject, setMessageSubject] = useState("");
+  const [messagePriority, setMessagePriority] = useState("normal");
+  const [messageText, setMessageText] = useState("");
+  const [messageFiles, setMessageFiles] = useState([]);
+  const [sendingMessage, setSendingMessage] = useState(false);
 
   useEffect(() => {
     return () => revokePreviewObjectUrl(previewObjectUrlRef);
@@ -333,6 +368,17 @@ function App() {
       localStorage.removeItem(SESSION_USER_KEY);
       localStorage.removeItem(SESSION_ONEDRIVE_HISTORY_KEY);
       setMailboxesData(createInitialMailboxesData());
+      setCommunicationLoaded(false);
+      setCommunicationError("");
+      setConversations([]);
+      setSelectedConversationId(null);
+      setConversationMessages([]);
+      setConversationMessagesError("");
+      setRecipientUserId("");
+      setMessageSubject("");
+      setMessagePriority("normal");
+      setMessageText("");
+      setMessageFiles([]);
     }
   }, [user]);
 
@@ -686,6 +732,219 @@ function App() {
       return date;
     }
   };
+
+  /* =========================
+     INTERNAL COMMUNICATION
+  ========================= */
+  const userDirectoryMap = useMemo(
+    () => new Map(USER_DIRECTORY.map((entry) => [entry.id, entry])),
+    []
+  );
+
+  const communicationRoleOptions = useMemo(() => {
+    const seenRoles = new Set();
+
+    return USER_DIRECTORY.filter((entry) => entry.id !== user?.id).filter((entry) => {
+      if (seenRoles.has(entry.role)) return false;
+      seenRoles.add(entry.role);
+      return true;
+    });
+  }, [user]);
+
+  const communicationRecipients = useMemo(
+    () =>
+      USER_DIRECTORY.filter((entry) => entry.id !== user?.id).filter(
+        (entry) => communicationRoleFilter === "all" || entry.role === communicationRoleFilter
+      ),
+    [user, communicationRoleFilter]
+  );
+
+  const selectedConversation = useMemo(
+    () => conversations.find((conversation) => conversation.id === selectedConversationId) || null,
+    [conversations, selectedConversationId]
+  );
+
+  useEffect(() => {
+    if (
+      recipientUserId &&
+      !communicationRecipients.some((entry) => entry.id === recipientUserId)
+    ) {
+      setRecipientUserId("");
+    }
+  }, [communicationRecipients, recipientUserId]);
+
+  useEffect(() => {
+    if (!selectedConversation || !user?.id) return;
+
+    const partnerId = selectedConversation.participants.find(
+      (participantId) => participantId !== user.id
+    );
+
+    if (partnerId) {
+      setRecipientUserId(partnerId);
+    }
+
+    if (selectedConversation.subject) {
+      setMessageSubject(selectedConversation.subject);
+    }
+
+    if (selectedConversation.priority) {
+      setMessagePriority(selectedConversation.priority);
+    }
+  }, [selectedConversation, user]);
+
+  const loadCommunicationConversations = async (preferredConversationId = null) => {
+    if (!user?.id) return null;
+
+    try {
+      setCommunicationLoading(true);
+      setCommunicationError("");
+
+      const response = await fetch(
+        `${API_BASE_URL}/api/internal/conversations?userId=${encodeURIComponent(user.id)}`
+      );
+
+      if (!response.ok) {
+        throw new Error("No se pudieron cargar las conversaciones internas.");
+      }
+
+      const payload = await response.json();
+      const nextConversations = Array.isArray(payload?.conversations)
+        ? payload.conversations
+        : [];
+
+      setConversations(nextConversations);
+      setCommunicationLoaded(true);
+
+      const nextSelectedId =
+        preferredConversationId ||
+        (nextConversations.some((conversation) => conversation.id === selectedConversationId)
+          ? selectedConversationId
+          : nextConversations[0]?.id || null);
+
+      setSelectedConversationId(nextSelectedId);
+      setCommunicationLoading(false);
+
+      return nextSelectedId;
+    } catch (error) {
+      setCommunicationError(error.message);
+      setCommunicationLoading(false);
+      return null;
+    }
+  };
+
+  const loadConversationMessages = async (conversationId) => {
+    if (!conversationId || !user?.id) {
+      setConversationMessages([]);
+      return;
+    }
+
+    try {
+      setConversationMessagesLoading(true);
+      setConversationMessagesError("");
+
+      const response = await fetch(
+        `${API_BASE_URL}/api/internal/conversations/${conversationId}/messages?userId=${encodeURIComponent(user.id)}`
+      );
+
+      if (!response.ok) {
+        throw new Error("No se pudieron cargar los mensajes de esta conversación.");
+      }
+
+      const payload = await response.json();
+      setConversationMessages(Array.isArray(payload?.messages) ? payload.messages : []);
+      setConversationMessagesLoading(false);
+    } catch (error) {
+      setConversationMessagesError(error.message);
+      setConversationMessagesLoading(false);
+    }
+  };
+
+  const openCommunicationView = async () => {
+    if (!canAccessModule(user, MODULE_KEYS.communication)) return;
+
+    setView("communication");
+
+    const nextSelectedId = await loadCommunicationConversations();
+    if (nextSelectedId) {
+      await loadConversationMessages(nextSelectedId);
+    }
+  };
+
+  const openConversation = async (conversationId) => {
+    setSelectedConversationId(conversationId);
+    await loadConversationMessages(conversationId);
+  };
+
+  const submitInternalMessage = async (event) => {
+    event.preventDefault();
+
+    if (!user?.id) return;
+
+    const targetRecipientId =
+      selectedConversation?.participants.find((participantId) => participantId !== user.id) ||
+      recipientUserId;
+
+    if (!targetRecipientId) {
+      alert("Selecciona primero el destinatario interno.");
+      return;
+    }
+
+    if (!messageText.trim() && messageFiles.length === 0) {
+      alert("Escribe un mensaje o adjunta al menos un archivo.");
+      return;
+    }
+
+    try {
+      setSendingMessage(true);
+      setCommunicationError("");
+
+      const attachments = await Promise.all(messageFiles.map((file) => fileToBase64(file)));
+
+      const response = await fetch(`${API_BASE_URL}/api/internal/messages`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          senderId: user.id,
+          recipientId: targetRecipientId,
+          conversationId: selectedConversation?.id || null,
+          subject: messageSubject.trim(),
+          priority: messagePriority,
+          text: messageText.trim(),
+          attachments,
+        }),
+      });
+
+      const payload = await response.json();
+
+      if (!response.ok) {
+        throw new Error(payload?.error || "No se pudo enviar el mensaje interno.");
+      }
+
+      setMessageText("");
+      setMessageFiles([]);
+
+      const nextConversationId = payload?.conversation?.id || selectedConversation?.id || null;
+      const resolvedConversationId =
+        (await loadCommunicationConversations(nextConversationId)) || nextConversationId;
+
+      if (resolvedConversationId) {
+        await loadConversationMessages(resolvedConversationId);
+      }
+    } catch (error) {
+      setCommunicationError(error.message);
+    } finally {
+      setSendingMessage(false);
+    }
+  };
+
+  const selectedConversationPartner = selectedConversation
+    ? userDirectoryMap.get(
+        selectedConversation.participants.find((participantId) => participantId !== user?.id)
+      )
+    : null;
 
   /* =========================
      MOODLE FUNCTIONS
@@ -1126,6 +1385,17 @@ function App() {
 
   const roleAwareHomeCards = [
     {
+      moduleKey: MODULE_KEYS.communication,
+      title: "Comunicacion Interna",
+      description: "Canal privado entre usuarios del panel para mensajes importantes y adjuntos.",
+      icon: "\uD83D\uDCAC",
+      action: "Coordinar",
+      tone: "blue",
+      accent: "Interno",
+      priority: "featured",
+      onClick: openCommunicationView,
+    },
+    {
       moduleKey: MODULE_KEYS.mailPersonal,
       mailboxKey: "personal",
       title: "Correo Personal",
@@ -1472,6 +1742,7 @@ function App() {
               </div>
 
               <div className="home-marquee" aria-hidden="true">
+                <span>Comunicacion</span>
                 <span>Correo</span>
                 <span>OneDrive</span>
                 <span>Docs</span>
@@ -1511,6 +1782,299 @@ function App() {
                   </div>
                 </button>
               ))}
+            </section>
+          </>
+        )}
+
+        {view === "communication" && (
+          <>
+            <section className="moodle-header">
+              <div>
+                <p className="moodle-tag">Canal institucional</p>
+                <h2>Comunicacion interna</h2>
+                <p className="moodle-subtitle">
+                  Conversaciones privadas entre usuarios del panel para coordinacion, enlaces y
+                  archivos relevantes.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                className="back-button"
+                onClick={() => setView("home")}
+              >
+                ← Volver al inicio
+              </button>
+            </section>
+
+            <section className="communication-layout">
+              <aside className="communication-sidebar">
+                <div className="communication-panel">
+                  <div className="communication-panel-head">
+                    <div>
+                      <p className="communication-kicker">Nuevo envio</p>
+                      <h3>Mensaje interno</h3>
+                    </div>
+                    <span className="communication-private-pill">Privado</span>
+                  </div>
+
+                  <form className="communication-compose" onSubmit={submitInternalMessage}>
+                    <div className="communication-field-grid">
+                      <label className="communication-field">
+                        <span>Rol destino</span>
+                        <select
+                          value={communicationRoleFilter}
+                          onChange={(event) => setCommunicationRoleFilter(event.target.value)}
+                        >
+                          <option value="all">Todos los roles</option>
+                          {communicationRoleOptions.map((entry) => (
+                            <option key={entry.role} value={entry.role}>
+                              {entry.roleLabel}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+
+                      <label className="communication-field">
+                        <span>Destinatario</span>
+                        <select
+                          value={recipientUserId}
+                          onChange={(event) => setRecipientUserId(event.target.value)}
+                        >
+                          <option value="">Seleccionar usuario</option>
+                          {communicationRecipients.map((entry) => (
+                            <option key={entry.id} value={entry.id}>
+                              {entry.displayName} · {entry.roleLabel}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+
+                    <div className="communication-field-grid compact">
+                      <label className="communication-field">
+                        <span>Asunto</span>
+                        <input
+                          type="text"
+                          value={messageSubject}
+                          onChange={(event) => setMessageSubject(event.target.value)}
+                          placeholder="Ej. Revision de presupuesto o enlace urgente"
+                        />
+                      </label>
+
+                      <label className="communication-field">
+                        <span>Prioridad</span>
+                        <select
+                          value={messagePriority}
+                          onChange={(event) => setMessagePriority(event.target.value)}
+                        >
+                          <option value="low">Baja</option>
+                          <option value="normal">Normal</option>
+                          <option value="high">Alta</option>
+                        </select>
+                      </label>
+                    </div>
+
+                    <label className="communication-field">
+                      <span>Mensaje</span>
+                      <textarea
+                        rows="4"
+                        value={messageText}
+                        onChange={(event) => setMessageText(event.target.value)}
+                        placeholder="Redacta aqui la comunicacion institucional..."
+                      />
+                    </label>
+
+                    <label className="communication-upload">
+                      <span>Adjuntar archivos</span>
+                      <input
+                        type="file"
+                        multiple
+                        onChange={(event) =>
+                          setMessageFiles(Array.from(event.target.files || []))
+                        }
+                      />
+                      <small>Railway guardara estos adjuntos en el backend actual.</small>
+                    </label>
+
+                    {messageFiles.length > 0 && (
+                      <div className="communication-file-list">
+                        {messageFiles.map((file) => (
+                          <span key={`${file.name}-${file.lastModified}`} className="communication-file-pill">
+                            {file.name} · {formatBytes(file.size)}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+
+                    <div className="communication-compose-actions">
+                      <button
+                        type="button"
+                        className="memo-action ghost"
+                        onClick={() => {
+                          setMessageText("");
+                          setMessageFiles([]);
+                        }}
+                      >
+                        Limpiar
+                      </button>
+
+                      <button
+                        type="submit"
+                        className="memo-action blue"
+                        disabled={sendingMessage}
+                      >
+                        {sendingMessage ? "Enviando..." : "Enviar mensaje"}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+
+                <div className="communication-panel">
+                  <div className="communication-panel-head">
+                    <div>
+                      <p className="communication-kicker">Bandeja privada</p>
+                      <h3>Conversaciones</h3>
+                    </div>
+                    <button
+                      type="button"
+                      className="memo-action ghost"
+                      onClick={() => openCommunicationView()}
+                    >
+                      Actualizar
+                    </button>
+                  </div>
+
+                  {communicationLoading && (
+                    <div className="status-box">Cargando conversaciones internas...</div>
+                  )}
+
+                  {!communicationLoading && conversations.length === 0 && !communicationError && (
+                    <div className="status-box">
+                      Todavia no hay conversaciones. Puedes iniciar una desde el formulario.
+                    </div>
+                  )}
+
+                  {!communicationLoading && conversations.length > 0 && (
+                    <div className="communication-conversation-list">
+                      {conversations.map((conversation) => {
+                        const partner = userDirectoryMap.get(
+                          conversation.participants.find((participantId) => participantId !== user.id)
+                        );
+
+                        return (
+                          <button
+                            key={conversation.id}
+                            type="button"
+                            className={`communication-conversation-card ${
+                              selectedConversationId === conversation.id ? "active" : ""
+                            }`}
+                            onClick={() => openConversation(conversation.id)}
+                          >
+                            <div className="communication-conversation-top">
+                              <strong>{partner?.displayName || "Usuario interno"}</strong>
+                              <span>{formatMailDate(conversation.updatedAt || conversation.createdAt)}</span>
+                            </div>
+                            <p>{conversation.subject || "Sin asunto"}</p>
+                            <small>
+                              {conversation.lastMessage?.text || "Adjunto o mensaje sin texto"}
+                            </small>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </aside>
+
+              <section className="communication-thread-panel">
+                <div className="communication-panel communication-thread-shell">
+                  <div className="communication-panel-head">
+                    <div>
+                      <p className="communication-kicker">Chat interno</p>
+                      <h3>
+                        {selectedConversationPartner?.displayName || "Selecciona una conversacion"}
+                      </h3>
+                    </div>
+                    <span className="communication-priority">
+                      {selectedConversation?.priority || messagePriority || "normal"}
+                    </span>
+                  </div>
+
+                  {selectedConversation && (
+                    <div className="communication-thread-meta">
+                      <span>{selectedConversation.subject || "Sin asunto"}</span>
+                      <span>{selectedConversationPartner?.roleLabel || "Rol interno"}</span>
+                    </div>
+                  )}
+
+                  {conversationMessagesLoading && (
+                    <div className="status-box">Cargando mensajes internos...</div>
+                  )}
+
+                  {!conversationMessagesLoading &&
+                    !selectedConversation &&
+                    !communicationError && (
+                      <div className="status-box">
+                        Elige una conversacion existente o inicia una nueva desde la izquierda.
+                      </div>
+                    )}
+
+                  {!conversationMessagesLoading && selectedConversation && (
+                    <div className="communication-thread">
+                      {conversationMessages.length === 0 ? (
+                        <div className="status-box">
+                          Esta conversacion aun no tiene mensajes visibles.
+                        </div>
+                      ) : (
+                        conversationMessages.map((message) => {
+                          const sender = userDirectoryMap.get(message.senderId);
+                          const ownMessage = message.senderId === user.id;
+
+                          return (
+                            <article
+                              key={message.id}
+                              className={`communication-message ${
+                                ownMessage ? "own" : "incoming"
+                              }`}
+                            >
+                              <div className="communication-message-meta">
+                                <strong>{ownMessage ? "Tu mensaje" : sender?.displayName || "Usuario"}</strong>
+                                <span>{formatMailDate(message.createdAt)}</span>
+                              </div>
+
+                              {message.text ? <p>{message.text}</p> : <p>Archivo adjunto sin texto.</p>}
+
+                              {Array.isArray(message.attachments) &&
+                                message.attachments.length > 0 && (
+                                  <div className="communication-attachment-list">
+                                    {message.attachments.map((attachment) => (
+                                      <a
+                                        key={attachment.id}
+                                        className="communication-attachment"
+                                        href={`${API_BASE_URL}${attachment.url}`}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                      >
+                                        {attachment.name} · {formatBytes(attachment.size)}
+                                      </a>
+                                    ))}
+                                  </div>
+                                )}
+                            </article>
+                          );
+                        })
+                      )}
+                    </div>
+                  )}
+
+                  {(communicationError || conversationMessagesError) && (
+                    <div className="status-box error-box">
+                      {communicationError || conversationMessagesError}
+                    </div>
+                  )}
+                </div>
+              </section>
             </section>
           </>
         )}
