@@ -1201,7 +1201,7 @@ function App() {
     },
     {
       label: "Sesion",
-      value: user.roleLabel || user.role,
+      value: user?.roleLabel || user?.role || "Invitado",
       hint: "Acceso persistente en este dispositivo",
     },
   ];
