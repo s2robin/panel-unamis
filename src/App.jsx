@@ -1083,9 +1083,9 @@ function App() {
   };
 
   const handleLogout = () => {
-    if (user?.role) {
+    if (user?.id) {
       Object.keys(MAILBOX_CONFIG).forEach((accountKey) => {
-        localStorage.removeItem(getMailReadStorageKey(user.role, accountKey));
+        localStorage.removeItem(getMailReadStorageKey(user.id, accountKey));
       });
     }
     setUser(null);
@@ -1233,7 +1233,7 @@ function App() {
   }
 
   const homeCards = [
-    ...(user.role === "admin"
+    ...(user?.role === "admin"
       ? [
           {
             title: "Correo Personal",
@@ -1294,7 +1294,7 @@ function App() {
       action: "Balance",
       tone: "light-blue",
       accent: "Finanzas",
-      priority: user.role === "finance" ? "featured" : "secondary",
+      priority: user?.role === "finance" ? "featured" : "secondary",
       onClick: () => setView("finance"),
     },
   ];
@@ -1381,7 +1381,7 @@ function App() {
     },
     {
       label: "Sesión",
-      value: user.role === "admin" ? "Admin" : "Finance",
+      value: user?.role === "admin" ? "Admin" : "Finance",
       hint: "Acceso persistente en este dispositivo",
     },
   ];
@@ -1394,7 +1394,7 @@ function App() {
     },
     {
       label: "SesiÃ³n",
-      value: user.roleLabel || user.role,
+      value: user?.roleLabel || user?.role || "Invitado",
       hint: "Acceso persistente en este dispositivo",
     },
   ];
