@@ -2,6 +2,14 @@ import { useEffect, useState, useMemo, useRef } from "react";
 import "./index.css";
 import logo from "./assets/logo.png";
 import FinanceModule from "./FinanceModule";
+import {
+  MAILBOX_CONFIG as AUTH_MAILBOX_CONFIG,
+  MODULE_KEYS,
+  authenticateUser,
+  canAccessMailbox,
+  canAccessModule,
+  getAccessibleModuleCount,
+} from "./authConfig";
 
 // Función auxiliar para formatear los bytes a KB/MB
 const formatBytes = (bytes) => {
@@ -91,8 +99,8 @@ const getStoredJson = (key, fallback = null) => {
   }
 };
 
-const getMailReadStorageKey = (role = "guest", account = "institutional") =>
-  `${SESSION_MAIL_READ_STATUS_KEY}_${role}_${account}`;
+const getMailReadStorageKey = (userId = "guest", account = "institutional") =>
+  `${SESSION_MAIL_READ_STATUS_KEY}_${userId}_${account}`;
 
 const normalizeFolderHistory = (storedHistory, rootFolder) => {
   if (!Array.isArray(storedHistory) || storedHistory.length === 0) {
@@ -173,6 +181,23 @@ const createInitialMailboxesData = () =>
     Object.keys(MAILBOX_CONFIG).map((accountKey) => [accountKey, createEmptyMailboxState()])
   );
 
+const MODULE_VIEW_ACCESS = {
+  mail: (currentUser, currentMailbox) => canAccessMailbox(currentUser, currentMailbox),
+  "mail-detail": (currentUser, currentMailbox) => canAccessMailbox(currentUser, currentMailbox),
+  onedrive: (currentUser) => canAccessModule(currentUser, MODULE_KEYS.onedrive),
+  docs: (currentUser) => canAccessModule(currentUser, MODULE_KEYS.docs),
+  "docs-detail": (currentUser) => canAccessModule(currentUser, MODULE_KEYS.docs),
+  moodle: (currentUser) => canAccessModule(currentUser, MODULE_KEYS.moodle),
+  "course-details": (currentUser) => canAccessModule(currentUser, MODULE_KEYS.moodle),
+  "student-report": (currentUser) => canAccessModule(currentUser, MODULE_KEYS.moodle),
+  finance: (currentUser) => canAccessModule(currentUser, MODULE_KEYS.finance),
+};
+
+const canAccessCurrentView = (currentUser, currentView, currentMailbox) => {
+  const accessResolver = MODULE_VIEW_ACCESS[currentView];
+  return accessResolver ? accessResolver(currentUser, currentMailbox) : true;
+};
+
 function AnimatedStatValue({ value }) {
   const isNumeric = /^\d+$/.test(String(value || ""));
   const [displayValue, setDisplayValue] = useState(() => (isNumeric ? "00" : value));
@@ -218,7 +243,10 @@ function DashboardBackground() {
 
 function App() {
   const [view, setView] = useState(() => localStorage.getItem(SESSION_VIEW_KEY) || "home");
-  const [user, setUser] = useState(() => getStoredJson(SESSION_USER_KEY, null));
+  const [user, setUser] = useState(() => {
+    const storedUser = getStoredJson(SESSION_USER_KEY, null);
+    return storedUser?.moduleAccess ? storedUser : null;
+  });
 
   /* =========================
      MOODLE
@@ -320,7 +348,7 @@ function App() {
   }, [user, folderHistory]);
 
   useEffect(() => {
-    if (!user?.role) return;
+    if (!user?.id) return;
 
     setMailboxesData((prev) => {
       const next = { ...prev };
@@ -328,7 +356,7 @@ function App() {
       Object.keys(MAILBOX_CONFIG).forEach((accountKey) => {
         next[accountKey] = {
           ...(prev[accountKey] || createEmptyMailboxState()),
-          readStatuses: getStoredJson(getMailReadStorageKey(user.role, accountKey), {}),
+          readStatuses: getStoredJson(getMailReadStorageKey(user.id, accountKey), {}),
         };
       });
 
@@ -337,11 +365,11 @@ function App() {
   }, [user]);
 
   useEffect(() => {
-    if (!user?.role) return;
+    if (!user?.id) return;
 
     Object.keys(MAILBOX_CONFIG).forEach((accountKey) => {
       localStorage.setItem(
-        getMailReadStorageKey(user.role, accountKey),
+        getMailReadStorageKey(user.id, accountKey),
         JSON.stringify(mailboxesData[accountKey]?.readStatuses || {})
       );
     });
@@ -360,6 +388,14 @@ function App() {
       loadMailData(mailAccount);
     }
   }, [user, view, mailAccount, mailboxesData]);
+
+  useEffect(() => {
+    if (!user) return;
+
+    if (!canAccessCurrentView(user, view, mailAccount)) {
+      setView("home");
+    }
+  }, [user, view, mailAccount]);
 
   /* =========================
      ONEDRIVE FUNCTIONS
@@ -403,6 +439,8 @@ function App() {
   };
 
   const openOneDriveView = () => {
+    if (!canAccessModule(user, MODULE_KEYS.onedrive)) return;
+
     setView("onedrive");
     if (onedriveFiles.length === 0) {
       loadOneDriveData(folderHistory);
@@ -522,6 +560,8 @@ function App() {
   };
 
   const openMailView = async (accountKey = "institutional", tab = "INBOX") => {
+    if (!canAccessMailbox(user, accountKey)) return;
+
     const targetMailbox = mailboxesData[accountKey] || createEmptyMailboxState();
 
     setMailAccount(accountKey);
@@ -551,6 +591,8 @@ function App() {
   };
 
   const openMailDetail = async (mail) => {
+    if (!canAccessMailbox(user, mailAccount)) return;
+
     updateMailboxState(mailAccount, (currentMailbox) => ({
       ...currentMailbox,
       selectedMail: mail,
@@ -582,7 +624,7 @@ function App() {
     }
   };
 
-  const currentMailConfig = MAILBOX_CONFIG[mailAccount] || MAILBOX_CONFIG.institutional;
+  const currentMailConfig = AUTH_MAILBOX_CONFIG[mailAccount] || AUTH_MAILBOX_CONFIG.institutional;
   const currentMailState = mailboxesData[mailAccount] || createEmptyMailboxState();
   const currentMailList =
     mailTab === "INBOX"
@@ -640,6 +682,8 @@ function App() {
      MOODLE FUNCTIONS
   ========================= */
   const openMoodleView = async () => {
+    if (!canAccessModule(user, MODULE_KEYS.moodle)) return;
+
     setView("moodle");
 
     if (categories.length > 0) return;
@@ -865,6 +909,8 @@ function App() {
   };
 
   const openDocsView = async (tab = "INBOX") => {
+    if (!canAccessModule(user, MODULE_KEYS.docs)) return;
+
     setView("docs");
     setDocsTab(tab);
     setSelectedMemo(null);
@@ -1003,6 +1049,11 @@ function App() {
     }
   };
 
+  const openFinanceView = () => {
+    if (!canAccessModule(user, MODULE_KEYS.finance)) return;
+    setView("finance");
+  };
+
   const memoToShow = selectedMemoDetail || selectedMemo;
   const memoFiles = Array.isArray(memoToShow?.files) ? memoToShow.files : [];
   const memoHistory = Array.isArray(memoToShow?.history) ? memoToShow.history : [];
@@ -1041,6 +1092,120 @@ function App() {
     setView("home");
   };
 
+  const handleAuthLogin = (username, password) => {
+    const authenticatedUser = authenticateUser(username, password);
+
+    if (!authenticatedUser) {
+      alert("Usuario o contraseÃ±a incorrectos");
+      return;
+    }
+
+    setUser(authenticatedUser);
+    setView("home");
+  };
+
+  const logoutUser = () => {
+    if (user?.id) {
+      Object.keys(MAILBOX_CONFIG).forEach((accountKey) => {
+        localStorage.removeItem(getMailReadStorageKey(user.id, accountKey));
+      });
+    }
+
+    setUser(null);
+    setView("home");
+  };
+
+  const roleAwareHomeCards = [
+    {
+      moduleKey: MODULE_KEYS.mailPersonal,
+      mailboxKey: "personal",
+      title: "Correo Personal",
+      description: "Bandeja de entrada, enviados y spam con seguimiento local.",
+      icon: "\uD83D\uDCE7",
+      action: "Mensajes",
+      tone: "blue",
+      accent: "Comunicacion",
+      priority: "primary",
+      onClick: () => openMailView("personal", "INBOX"),
+    },
+    {
+      moduleKey: MODULE_KEYS.mailInstitutional,
+      mailboxKey: "institutional",
+      title: "Correo Institucional",
+      description: "Microsoft 365 dentro del panel con lectura interna y detalle enriquecido.",
+      icon: "\uD83C\uDFE2",
+      action: "Outlook",
+      tone: "green",
+      accent: "Microsoft 365",
+      priority: "secondary",
+      onClick: () => openMailView("institutional", "INBOX"),
+    },
+    {
+      moduleKey: MODULE_KEYS.onedrive,
+      title: "OneDrive",
+      description: "Acceso persistente a la nube institucional con navegacion restaurable.",
+      icon: "\u2601\uFE0F",
+      action: "Explorar",
+      tone: "light-blue",
+      accent: "Archivos",
+      priority: "featured",
+      onClick: openOneDriveView,
+    },
+    {
+      moduleKey: MODULE_KEYS.docs,
+      title: "UNAMIS DOCS",
+      description: "Bandeja documental, memorandums y control interno de lectura.",
+      icon: "\uD83D\uDCC1",
+      action: "Revisar",
+      tone: "orange",
+      accent: "Gestion",
+      priority: "secondary",
+      onClick: () => openDocsView("INBOX"),
+    },
+    {
+      moduleKey: MODULE_KEYS.moodle,
+      title: "Moodle",
+      description: "Comunidad de aprendizaje con carreras, cursos y reportes academicos.",
+      icon: "\uD83C\uDF93",
+      action: "Campus",
+      tone: "purple",
+      accent: "Academico",
+      priority: "secondary",
+      onClick: openMoodleView,
+    },
+    {
+      moduleKey: MODULE_KEYS.finance,
+      title: "Equilibrio Mensual",
+      description: "Control de ingresos, gastos y presupuesto de la sede con lectura rapida.",
+      icon: "\uD83D\uDCCA",
+      action: "Balance",
+      tone: "light-blue",
+      accent: "Finanzas",
+      priority:
+        canAccessModule(user, MODULE_KEYS.finance) && getAccessibleModuleCount(user) === 1
+          ? "featured"
+          : "secondary",
+      onClick: openFinanceView,
+    },
+  ].filter(
+    (card) =>
+      canAccessModule(user, card.moduleKey) &&
+      (!card.mailboxKey || canAccessMailbox(user, card.mailboxKey))
+  );
+
+  const roleAwareHighlights = [
+    {
+      label: "Modulos activos",
+      value: String(roleAwareHomeCards.length).padStart(2, "0"),
+      hint: "Herramientas disponibles hoy",
+    },
+    {
+      label: "Sesion",
+      value: user.roleLabel || user.role,
+      hint: "Acceso persistente en este dispositivo",
+    },
+  ];
+
   if (!user) {
     return (
       <div className="login-screen">
@@ -1050,7 +1215,7 @@ function App() {
           <p>Sede Santa Rosa</p>
           <form onSubmit={(e) => {
             e.preventDefault();
-            handleLogin(e.target.username.value, e.target.password.value);
+            handleAuthLogin(e.target.username.value, e.target.password.value);
           }}>
             <div className="form-group" style={{ textAlign: 'left' }}>
               <label>Usuario</label>
@@ -1134,6 +1299,80 @@ function App() {
     },
   ];
 
+  const accessibleHomeCards = [
+    {
+      moduleKey: MODULE_KEYS.mailPersonal,
+      mailboxKey: "personal",
+      title: "Correo Personal",
+      description: "Bandeja de entrada, enviados y spam con seguimiento local.",
+      icon: "ðŸ“§",
+      action: "Mensajes",
+      tone: "blue",
+      accent: "ComunicaciÃ³n",
+      priority: "primary",
+      onClick: () => openMailView("personal", "INBOX"),
+    },
+    {
+      moduleKey: MODULE_KEYS.mailInstitutional,
+      mailboxKey: "institutional",
+      title: "Correo Institucional",
+      description: "Microsoft 365 dentro del panel con lectura interna y detalle enriquecido.",
+      icon: "ðŸ¢",
+      action: "Outlook",
+      tone: "green",
+      accent: "Microsoft 365",
+      priority: "secondary",
+      onClick: () => openMailView("institutional", "INBOX"),
+    },
+    {
+      moduleKey: MODULE_KEYS.onedrive,
+      title: "OneDrive",
+      description: "Acceso persistente a la nube institucional con navegaciÃ³n restaurable.",
+      icon: "â˜ï¸",
+      action: "Explorar",
+      tone: "light-blue",
+      accent: "Archivos",
+      priority: "featured",
+      onClick: openOneDriveView,
+    },
+    {
+      moduleKey: MODULE_KEYS.docs,
+      title: "UNAMIS DOCS",
+      description: "Bandeja documental, memorÃ¡ndums y control interno de lectura.",
+      icon: "ðŸ“",
+      action: "Revisar",
+      tone: "orange",
+      accent: "GestiÃ³n",
+      priority: "secondary",
+      onClick: () => openDocsView("INBOX"),
+    },
+    {
+      moduleKey: MODULE_KEYS.moodle,
+      title: "Moodle",
+      description: "Comunidad de aprendizaje con carreras, cursos y reportes acadÃ©micos.",
+      icon: "ðŸŽ“",
+      action: "Campus",
+      tone: "purple",
+      accent: "AcadÃ©mico",
+      priority: "secondary",
+      onClick: openMoodleView,
+    },
+    {
+      moduleKey: MODULE_KEYS.finance,
+      title: "Equilibrio Mensual",
+      description: "Control de ingresos, gastos y presupuesto de la sede con lectura rÃ¡pida.",
+      icon: "ðŸ“Š",
+      action: "Balance",
+      tone: "light-blue",
+      accent: "Finanzas",
+      priority: canAccessModule(user, MODULE_KEYS.finance) && getAccessibleModuleCount(user) === 1 ? "featured" : "secondary",
+      onClick: openFinanceView,
+    },
+  ].filter((card) => (
+    canAccessModule(user, card.moduleKey) &&
+    (!card.mailboxKey || canAccessMailbox(user, card.mailboxKey))
+  ));
+
   const homeHighlights = [
     {
       label: "Módulos activos",
@@ -1143,6 +1382,19 @@ function App() {
     {
       label: "Sesión",
       value: user.role === "admin" ? "Admin" : "Finance",
+      hint: "Acceso persistente en este dispositivo",
+    },
+  ];
+
+  const dashboardHighlights = [
+    {
+      label: "MÃ³dulos activos",
+      value: String(accessibleHomeCards.length).padStart(2, "0"),
+      hint: "Herramientas disponibles hoy",
+    },
+    {
+      label: "SesiÃ³n",
+      value: user.roleLabel || user.role,
       hint: "Acceso persistente en este dispositivo",
     },
   ];
@@ -1177,9 +1429,9 @@ function App() {
 
             <div className="hero-actions-row">
               <p className="description welcome-line">
-                Bienvenido, <strong>{user.username}</strong>
+                Bienvenido, <strong>{user.displayName || user.username}</strong>
               </p>
-              <button onClick={handleLogout} className="memo-action ghost hero-logout">
+              <button onClick={logoutUser} className="memo-action ghost hero-logout">
                 Cerrar Sesión
               </button>
             </div>
@@ -1191,7 +1443,7 @@ function App() {
               <span className="hero-panel-live"></span>
             </div>
             <div className="hero-stats">
-              {homeHighlights.map((item) => (
+              {roleAwareHighlights.map((item) => (
                 <div key={item.label} className="hero-stat-card">
                   <span>{item.label}</span>
                   <AnimatedStatValue value={item.value} />
@@ -1221,7 +1473,7 @@ function App() {
             </section>
 
             <section className="grid home-grid">
-              {homeCards.map((card, index) => (
+              {roleAwareHomeCards.map((card, index) => (
                 <button
                   key={card.title}
                   type="button"
