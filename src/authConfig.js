@@ -87,10 +87,10 @@ export const ROLE_CONFIG = {
     mailboxes: {
       personal: {
         enabled: true,
-        target: MAILBOX_CONFIG.personal.defaultTarget,
+        target: "pablo.ramos@unamis.edu.py",
       },
       institutional: {
-        enabled: false,
+        enabled: true,
         target: MAILBOX_CONFIG.institutional.defaultTarget,
       },
     },
@@ -150,7 +150,7 @@ const USER_RECORDS = [
       mailboxes: {
         personal: {
           enabled: true,
-          target: MAILBOX_CONFIG.personal.defaultTarget,
+          target: "pablo.ramos@unamis.edu.py",
         },
       },
     },
