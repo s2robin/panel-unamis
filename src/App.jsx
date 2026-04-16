@@ -809,9 +809,11 @@ function App() {
       }
 
       const payload = await response.json();
-      const nextConversations = Array.isArray(payload?.conversations)
-        ? payload.conversations
-        : [];
+      const nextConversations = Array.isArray(payload)
+        ? payload
+        : Array.isArray(payload?.conversations)
+          ? payload.conversations
+          : [];
 
       setConversations(nextConversations);
       setCommunicationLoaded(true);
